@@ -1,3 +1,4 @@
+require 'active_support'
 require 'active_support/duration'
 require 'active_support/duration/iso8601_serializer'
 

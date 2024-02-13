@@ -1,5 +1,4 @@
 require 'active_support/duration'
-require 'active_support/core_ext/hash/compact'
 
 module ActiveSupport
   class Duration
@@ -10,7 +9,7 @@ module ActiveSupport
       #
       # TODO: normalize: option (default true?) which changes 30.5 minutes into 30m, 30s
       def parse_parts(parts, normalize: false)
-        parts = parts.reject { |k, v| v.zero? }
+        parts = parts.compact.reject { |k, v| v.zero? }
         if normalize
           temp = build(parse_parts(parts, normalize: false).value)
           new(temp.value, temp.parts)
@@ -77,7 +76,7 @@ module ActiveSupport
       new_parts[:seconds] += Rational(new_usec, 1000000)
 
       self.class.parse_parts(
-        new_parts.reject { |k, v| v.zero? }
+        new_parts.compact.reject { |k, v| v.zero? }
       )
     end
 

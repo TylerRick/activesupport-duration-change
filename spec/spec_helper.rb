@@ -1,4 +1,6 @@
 require "bundler/setup"
+require 'active_support' # Have to require first to avoid getting undefined method `deprecator' for ActiveSupport:Module
+require "active_support/duration"
 require "active_support/duration/truncate"
 require "active_support/duration/human_string"
 require 'byebug' rescue nil
