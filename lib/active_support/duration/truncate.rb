@@ -7,31 +7,63 @@ module ActiveSupport
       #
       # Surprising that upstream ActiveSupport doesn't provide this method
       #
-      # TODO: normalize: option (default true?) which changes 30.5 minutes into 30m, 30s
-      def parse_parts(parts, normalize: false)
+      # normalize: true (the default) changes 30.5m into 30m, 30s, for example.
+      def from_parts(parts, normalize: true)
         parts = parts.compact.reject { |k, v| v.zero? }
+        duration = new(calculate_total_seconds(parts), parts)
         if normalize
-          temp = build(parse_parts(parts, normalize: false).value)
-          new(temp.value, temp.parts)
+          duration.normalize
         else
-          new(calculate_total_seconds(parts), parts)
+          duration
         end
+      end
+
+      alias parse_parts from_parts
+
+      def units_largest_first
+        # Reverse since PARTS_IN_SECONDS is ordered smallest to largest
+        PARTS_IN_SECONDS.keys.reverse.freeze
       end
 
       def next_smaller_unit(unit)
         i = PARTS.index(unit) or raise(ArgumentError, "unknown unit #{unit}")
         PARTS[i + 1]
       end
+
+      def smaller_units(unit)
+        # The index of unit; we only want parts with indexes > this index
+        unit_i = units_largest_first.index(unit) or raise(ArgumentError, "unknown unit #{unit}")
+        units_largest_first.select.with_index { |key, i| i > unit_i }
+      end
+    end
+
+    # Re-builds the Duration using build(value). Useful if you may have "extra" seconds, minutes,
+    # etc. that could be carried over to the next higher unit, such as if you've built a Duration
+    # using Duration.seconds and a number of seconds > 60.
+    #
+    # ActiveSupport::Duration.seconds(61).normalize
+    # => 1 minute and 1 second
+    #
+    def normalize
+      Duration.build(value)
     end
 
     # Replaces parts of duration with given part values. Unlike #change_cascade and Time#change,
     # *only* ever changes the given parts; it does *not* reset any smaller-unit parts.
-    def change(options)
-      self.class.parse_parts(
-        parts.merge(options)
+    def change(**changes)
+      self.class.from_parts(
+        parts.merge(changes),
+        normalize: false
       )
     end
 
+    # Changes the given part(s) of the duration and resets any smaller parts.
+    #
+    # @example
+    #   (9.hours + 10.minutes + 40.seconds).change_cascade(hours: 12)
+    #   (9.hours + 10.minutes + 40.seconds).change_cascade(minutes: 5)
+    #   => 9 hours and 5 minutes
+    #
     # Similar to Time#change
     # But note that the keys are plural, so :years instead of :year.
     # Should we allow key aliases? Should we raise ArgumentError if key not recognized? Yes. (Why doesn't Time#change?)
@@ -55,139 +87,132 @@ module ActiveSupport
 
       reset = false
       new_parts = {}
-      new_parts[:years]   = options.fetch(:years,               parts[:years])  ; reset = options.key?(:years)
-      new_parts[:months]  = options.fetch(:months,  reset ? 0 : parts[:months]) ; reset = options.key?(:months)
-      new_parts[:days]    = options.fetch(:days,    reset ? 0 : parts[:days])   ; reset = options.key?(:days)
-      new_parts[:hours]   = options.fetch(:hours,   reset ? 0 : parts[:hours])  ; reset = options.key?(:hours)
-      new_parts[:minutes] = options.fetch(:minutes, reset ? 0 : parts[:minutes]); reset = options.key?(:minutes)
+      new_parts[:years]   = options.fetch(:years,               parts[:years])  ; reset ||= options.key?(:years)
+      new_parts[:months]  = options.fetch(:months,  reset ? 0 : parts[:months]) ; reset ||= options.key?(:months)
+      new_parts[:days]    = options.fetch(:days,    reset ? 0 : parts[:days])   ; reset ||= options.key?(:days)
+      new_parts[:hours]   = options.fetch(:hours,   reset ? 0 : parts[:hours])  ; reset ||= options.key?(:hours)
+      new_parts[:minutes] = options.fetch(:minutes, reset ? 0 : parts[:minutes]); reset ||= options.key?(:minutes)
       new_parts[:seconds] = options.fetch(:seconds, reset ? 0 : parts[:seconds])
 
       if new_nsec = options[:nsec]
         raise ArgumentError, "Can't change both :nsec and :usec at the same time: #{options.inspect}" if options[:usec]
         new_usec = Rational(new_nsec, 1000)
       else
-        new_usec = 0
+        new_usec = nil
 #        new_usec = options.fetch(:usec, (options[:hour] || options[:min] || options[:sec]) ? 0 :
 #                                         Rational(nsec, 1000))
       end
+      if new_usec
+        raise ArgumentError, "argument out of range" if new_usec >= 1000000
 
-      raise ArgumentError, "argument out of range" if new_usec >= 1000000
+        new_parts[:seconds] += Rational(new_usec, 1000000)
+      end
 
-      new_parts[:seconds] += Rational(new_usec, 1000000)
-
-      self.class.parse_parts(
-        new_parts.compact.reject { |k, v| v.zero? }
+      self.class.from_parts(
+        new_parts.compact.reject { |k, v| v.zero? },
+        normalize: false,
       )
     end
 
 
-    # Returns duration rounded to the nearest value with a precision of `precision` (a unit such as
-    # :minutes, :seconds). All more-precise-unit parts (for example :minutes and :seconds if :hours
-    # precision is specified) are discarded.
+    # Returns duration rounded to the nearest value having a precision of `precision`, which is a
+    # unit such as :hours, which would mean "round to the nearest hour". The smaller parts (:minutes
+    # and :seconds in this example) are turned into a fraction of the requested precision (:hours),
+    # which is then added to requested precision part. Finally, `round` is called on the requested
+    # precision part (hours in this example).
     #
-    # All arguments beyond the first argument ([ndigits] [, half: mode]) are passed to [round](https://ruby-doc.org/core-2.7.1/Float.html#method-i-round).
+    # If optional [ndigits] [, half: mode] arguments are supplied, they are passed along to
+    # [round](https://ruby-doc.org/core/Float.html#method-i-round).
     #
     # @example
-    #   duration.round(:seconds, 2, half: :down)
-    #     2.5.round(half: :down)    #=> 2
+    #   30.seconds.round(:minutes)        #=> 1 minute
+    #   89.seconds.round(:minutes)        #=> 1 minute
+    #   90.seconds.round(:minutes)        #=> 2 minutes
+    #
+    #   2.5.seconds.round                 #=> 3 seconds
+    #   2.5.seconds.round(half: :down)    #=> 2 seconds
     #
     # @raises ArgumentError
-    # raise ArgumentError if key not recognized?
+    # TODO raise ArgumentError if precision not recognized as a unit
     #
-    #def round(precision = :seconds, *args)
-    def round(precision, *args)
-      # TODO: how do we handle 1.4 minutes + 25 seconds ? Can't do these 2 "round" approaches independently. Need to
-      # normalize total number of fractional minutes into seconds before deciding which way to round
-      # the :minutes part.
-      new_part_value = parts[precision].round(*args)
+    def round(precision = smallest_unit, *args, **opts)
+      #puts "Rounding #{parts.inspect} (in particular #{parts[precision]} #{precision}) to nearest #{precision.inspect}"
 
-      unit = precision
-      next_smaller_unit = self.class.next_smaller_unit(unit)
-      next_smaller_unit_in_s = ActiveSupport::Duration::PARTS_IN_SECONDS[next_smaller_unit]
-      if next_smaller_unit_in_s
-        # AKA tie-breaker
-        next_smaller_part = parts[next_smaller_unit]
-      end
-      if next_smaller_part
-        next_smaller_part_in_s = next_smaller_part * next_smaller_unit_in_s rescue byebug
-        next_smaller_part_in_s = next_smaller_part * next_smaller_unit_in_s
-        half_way_mark_in_s = next_smaller_unit_in_s / 2
-        # TODO: use half: option if given (default :up)
-        if next_smaller_part_in_s >= half_way_mark_in_s
-          new_part_value += 1
-        end
-      end
+      new_part_value = orig_part_value = (parts[precision] || 0)
+      fraction = smaller_parts_to_fraction_of(precision)
+      # Usually fraction is in the range 0..1, unless the smaller units are overflowed (non-normalized)
+      new_part_value += fraction
+      #puts "Adding #{orig_part_value} + fraction parts #{fraction.inspect} (#{fraction.to_f}) = #{new_part_value} (#{new_part_value.to_f})"
+
+      new_part_value = new_part_value.round(*args, **opts)
 
       change_cascade(
         precision => new_part_value
       )
-
-#      case precision
-#      when :seconds
-#        self.parts[:seconds] = self.parts[:seconds].round
-#      when :minutes
-#        self.parts = self.parts.except(:seconds)
-#      when :hours
-#        puts %(self.parts=#{(self.parts).inspect})
-#        self.parts = self.parts.except(:seconds, :minutes)
-#        puts %(self.parts=#{(self.parts).inspect})
-#      end
-#      self
     end
 
-    # Probably not too useful but could mention how to implement, in #round docs, to make it even
-    # clearer that this is *not* what round does, and in case someone really wanted to round in this
-    # way.
-    def round_part(part_name, *args)
-      new_part_value = parts[part_name].round(*args)
-      change(
-        precision => new_part_value
-      )
+    # Convert the parts that are smaller than `unit` to be a fraction (Rational) of that
+    # `unit`.
+    #
+    # For example, if `unit` is :hours and self is 1h 29m 60s, then it would look at the parts
+    # smaller than hour, 29m 60s, which is the same as 30m, and would convert that to a fraction of
+    # hours, which would be 30m/60m = 1/2r.
+    #
+    def smaller_parts_to_fraction_of(unit)
+      #next_smaller_unit = self.class.next_smaller_unit(unit)
+      #next_smaller_unit_in_s = ActiveSupport::Duration::PARTS_IN_SECONDS[next_smaller_unit] # 1 if unit == :minutes
+      #puts %(unit_in_s=#{(unit_in_s).inspect}, next_smaller_unit_in_s=#{(next_smaller_unit_in_s).inspect})
+
+      smaller_parts = smaller_parts(unit)
+      numerator_s = ActiveSupport::Duration.send(:calculate_total_seconds, smaller_parts)
+      denominator_s = ActiveSupport::Duration::PARTS_IN_SECONDS[unit] # 60 if unit == :minutes
+
+      fraction = Rational(numerator_s, denominator_s)
+      #puts "#{smaller_parts.inspect} converted to  fraction #{numerator_s}/#{denominator_s} = #{fraction} (#{fraction.to_f})"
+      fraction
     end
 
-#    def round_parts(part_names, *args)
-#      parts.slice(*part_names).inject(self) do |new, (part_name, part_value)|
-#        new.round_parts(part_name, *args)
-#      end
-#    end
-
-    def round_all_parts(*args)
-      parts.inject(self) do |new, (part_name, part_value)|
-        new.round_parts(part_name, *args)
-      end
+    # Returns all parts than `unit` as a Hash that is a subset of self.parts.
+    #
+    # For example, if `unit` is :hours and self is 1h 29m 60s, then it would return the parts
+    # smaller than hour, 29m 60s, as the hash { minutes: 29, seconds: 60 }.
+    #
+    def smaller_parts(unit)
+      parts.slice *ActiveSupport::Duration.smaller_units(unit)
     end
 
-    # All arguments beyond the first argument ([ndigits]) are passed to round (
-    #   [Float#round](https://ruby-doc.org/core-2.7.1/Float.html#method-i-round) or
-    #   possibly in the case of seconds (only?) # [Integer#round](https://ruby-doc.org/core-2.7.1/Integer.html#method-i-truncate)
-    # )
+    def smallest_part
+      [parts.to_a.last].to_h
+    end
+
+    def smallest_unit
+      parts.to_a.last[0]
+    end
+
+    # Truncates the Duration to the specified precision. All smaller parts are discarded.
+    #
     # Similar to https://ruby-doc.org/core-2.7.1/Float.html#method-i-truncate
-    def truncate(precision = :seconds, *args)
+    #
+    def truncate(precision = smallest_unit, *args, **opts)
+      #puts %(Truncating #{parts.inspect} to #{precision.inspect})
+
       # TODO: only use truncate here if :seconds or if part is Float ?
       # or just always pass them along, although they are probably only needed for :seconds
-      new_part_value = parts[precision].truncate(*args)
+      part_value = (parts[precision] || 0)
+      new_part_value = part_value.truncate(*args)
       change_cascade(
         precision => new_part_value
       )
-
-#      case precision
-#      when :seconds
-#        # drop fractional part of seconds part
-#        # 20.7.truncate => 20
-#        self
-#      when :minutes
-#        self.parts = self.parts.except(:seconds)
-#      when :hours
-#        self.parts = self.parts.except(:seconds, :minutes)
-#      end
-#      self
     end
 
-    def ceil
-    end
+    # TODO: For completeness to complement truncate:
+    # https://ruby-doc.org/3.2.2/Float.html#method-i-ceil
+    # https://ruby-doc.org/3.2.2/Rational.html#method-i-round
+#    def ceil
+#    end
 
-    def floor
-    end
+#    def floor
+#    end
 
   end
 end

@@ -1,7 +1,3 @@
-def durations(value)
-  [ActiveSupport::Duration.build(value), ActiveSupport::Duration.seconds(value)]
-end
-
 RSpec.describe ActiveSupport::Duration do
   describe '#human_str' do
     it do
