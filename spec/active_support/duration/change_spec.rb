@@ -3,16 +3,12 @@ RSpec.describe ActiveSupport::Duration, '.from_parts' do
     parts = {minutes: 30.5, seconds: 30.5}
     duration = ActiveSupport::Duration.from_parts(parts)
     expect(duration.parts).to eq({minutes: 31, seconds: 0.5})
-    # TODO: don't use if standalone gem
-    expect(duration.to_human_s).to eq('31m 0.5s')
   end
 
   it do
     parts = {minutes: 30.5, seconds: 30.5}
     duration = ActiveSupport::Duration.from_parts(parts, normalize: false)
     expect(duration.parts).to eq(parts)
-    # TODO: don't use if standalone gem
-    expect(duration.to_human_s).to eq('31m 0.5s')
   end
 
   it 'is inverse of .parts'

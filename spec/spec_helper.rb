@@ -2,8 +2,7 @@ require "bundler/setup"
 require 'active_support' # Have to require first to avoid getting undefined method `deprecator' for ActiveSupport:Module
 require "active_support/duration"
 require 'active_support/core_ext/numeric/time' # for 3.seconds
-require "active_support/duration/truncate"
-require "active_support/duration/human_string"
+require "active_support/duration/change"
 require 'byebug' rescue nil
 
 RSpec.configure do |config|

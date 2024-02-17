@@ -1,20 +1,17 @@
 
 lib = File.expand_path("../lib", __FILE__)
 $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
-require "active_support/duration/human_string/version"
+require "active_support/duration/change/version"
 
 Gem::Specification.new do |spec|
-  spec.name          = "activesupport-duration-human_string"
-  spec.version       = ActiveSupport::Duration::HumanString.version
+  spec.name          = "activesupport-duration-change"
+  spec.version       = ActiveSupport::Duration::Change.version
   spec.authors       = ["Tyler Rick"]
   spec.email         = ["tyler@tylerrick.com"]
   spec.license       = "MIT"
 
-  spec.summary       = %q{Convert Duration objects to human-friendly strings like '2h 30m 17s'}
-  spec.description   = %q{Convert ActiveSupport::Duration objects to human-friendly strings like '2h 30m 17s'. }
-                       %q{Like distance_of_time_in_words helper but exact rather than approximate. }
-                       %q{Like #inspect but more concise. Like #iso8601 but more human readable rather than machine readable.}
-  spec.homepage      = "https://github.com/TylerRick/activesupport-duration-human_string"
+  spec.summary       = %q{Adds methods such as `#change`, `#truncate`, `#round` to `Duration`}
+  spec.homepage      = "https://github.com/TylerRick/activesupport-duration-change"
 
   spec.metadata["homepage_uri"]    = spec.homepage
   spec.metadata["source_code_uri"] = spec.homepage

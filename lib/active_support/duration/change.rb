@@ -60,9 +60,8 @@ module ActiveSupport
     # Changes the given part(s) of the duration and resets any smaller parts.
     #
     # @example
-    #   (9.hours + 10.minutes + 40.seconds).change_cascade(hours: 12)
-    #   (9.hours + 10.minutes + 40.seconds).change_cascade(minutes: 5)
-    #   => 9 hours and 5 minutes
+    #   (9.hours + 10.minutes + 40.seconds).change_cascade(hours: 12)  # => 12 hours
+    #   (9.hours + 10.minutes + 40.seconds).change_cascade(minutes: 5) # => 9 hours and 5 minutes
     #
     # Similar to Time#change
     # But note that the keys are plural, so :years instead of :year.
@@ -128,6 +127,7 @@ module ActiveSupport
     #   30.seconds.round(:minutes)        #=> 1 minute
     #   89.seconds.round(:minutes)        #=> 1 minute
     #   90.seconds.round(:minutes)        #=> 2 minutes
+    #   (1.hour + 30.seconds).round(:minutes)  #=> 1 hour and 1 minute
     #
     #   2.5.seconds.round                 #=> 3 seconds
     #   2.5.seconds.round(half: :down)    #=> 2 seconds
